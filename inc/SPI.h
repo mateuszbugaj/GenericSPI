@@ -32,6 +32,7 @@ typedef struct {
   void (*print_num)(SPI_Role, uint16_t);
   SPI_HAL_PinLevel sckLevel;
   SPI_HAL_PinLevel ssLevel;
+  uint8_t bitNumber;
 } SPI_Config;
 
 void SPI_init(SPI_Config* cfg);

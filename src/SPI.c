@@ -59,6 +59,7 @@ void SPI_send(SPI_Config* cfg, uint8_t payload, SPI_HAL_Pin* ss){
       SPI_logNum(cfg, "Bit", (cfg->SPIDR & 1), SPI_BITS);
       SPI_HAL_pinWrite(cfg->MOSI, (cfg->SPIDR & 1) == 0 ? SPI_LOW : SPI_HIGH);
       cfg->SPIDR >>= 1;
+      cfg->bitNumber++;
 
       // Read
       SPI_HAL_PinLevel inputBit = SPI_HAL_pinRead(cfg->MISO);
@@ -98,6 +99,7 @@ void SPI_read(SPI_Config* cfg){
 
   if(cfg->ssLevel == SPI_LOW && newSsLevel == SPI_HIGH){
     SPI_log(cfg, "Slave not addressed", SPI_STATES);
+    SPI_logNum(cfg, "SPIDR", cfg->SPIDR, SPI_BITS);
   }
 
   if(cfg->sckLevel == SPI_LOW && newSckLevel == SPI_HIGH){
@@ -106,12 +108,20 @@ void SPI_read(SPI_Config* cfg){
     if(inputBit == SPI_HIGH){
       cfg->SPIDR |= 0b10000000;
     }
+    cfg->bitNumber++;
 
     // Send
     SPI_logNum(cfg, "SPIDR", cfg->SPIDR, SPI_BITS);
     SPI_logNum(cfg, "Bit", (cfg->SPIDR & 1), SPI_BITS);
     SPI_HAL_pinWrite(cfg->MISO, (cfg->SPIDR & 1) == 0 ? SPI_LOW : SPI_HIGH);
-    cfg->SPIDR >>= 1;
+    
+    if(cfg->bitNumber == SPI_WORD_SIZE){
+      SPI_log(cfg, "Finished transmission", SPI_STATES);
+      SPI_logNum(cfg, "Received", cfg->SPIDR, SPI_BYTES);
+      cfg->bitNumber = 0;
+    } else {
+      cfg->SPIDR >>= 1;
+    }
   }
 
   cfg->sckLevel = newSckLevel;
