@@ -2,6 +2,8 @@
 
 #include <SPI_HAL.h>
 
+#define SPI_WORD_SIZE 8
+
 typedef enum {
   SPI_MASTER,
   SPI_SLAVE
@@ -28,6 +30,10 @@ typedef struct {
   uint8_t SPIDR;      // SPI Data Register
   void (*print_str)(SPI_Role, char[]);
   void (*print_num)(SPI_Role, uint16_t);
+  SPI_HAL_PinLevel sckLevel;
+  SPI_HAL_PinLevel ssLevel;
 } SPI_Config;
 
-void SPI_init(SPI_Config* SPI_Config);
+void SPI_init(SPI_Config* cfg);
+void SPI_send(SPI_Config* cfg, uint8_t payload, SPI_HAL_Pin* ss);
+void SPI_read(SPI_Config* cfg);
