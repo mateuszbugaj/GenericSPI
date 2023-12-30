@@ -3,6 +3,7 @@
 #include <SPI_HAL.h>
 
 #define SPI_WORD_SIZE 8
+#define SPIF 7
 
 typedef enum {
   SPI_MASTER,

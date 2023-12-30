@@ -20,6 +20,7 @@ void SPI_logNum(SPI_Config* cfg, char* name, uint16_t value, SPI_LoggingLevel le
 void SPI_init(SPI_Config* cfg){
   SPI_log(cfg, "SPI Start", SPI_BYTES);
   SPI_log(cfg, cfg->role == SPI_MASTER ? "MASTER" : "SLAVE", SPI_BYTES);
+  cfg->SPISR = 0;
 
   cfg->ssLevel = SPI_HIGH;
 }
@@ -118,6 +119,7 @@ void SPI_read(SPI_Config* cfg){
     if(cfg->bitNumber == SPI_WORD_SIZE){
       SPI_log(cfg, "Finished transmission", SPI_STATES);
       SPI_logNum(cfg, "Received", cfg->SPIDR, SPI_BYTES);
+      cfg->SPISR |= (1 << SPIF);
       cfg->bitNumber = 0;
     } else {
       cfg->SPIDR >>= 1;
