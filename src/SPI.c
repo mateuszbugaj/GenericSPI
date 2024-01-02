@@ -1,6 +1,10 @@
 #include <SPI.h>
 #include <stdio.h>
 
+uint8_t bitCheck(uint8_t registerValue, uint8_t bitPosition){
+  return registerValue & (1 << bitPosition);
+}
+
 void SPI_log(SPI_Config* cfg, char* content, SPI_LoggingLevel level){
   if(cfg->loggingLevel >= level){
     cfg->print_str(cfg->role, content);
@@ -20,14 +24,42 @@ void SPI_logNum(SPI_Config* cfg, char* name, uint16_t value, SPI_LoggingLevel le
 void SPI_init(SPI_Config* cfg){
   SPI_log(cfg, "SPI Start", SPI_BYTES);
   SPI_log(cfg, cfg->role == SPI_MASTER ? "MASTER" : "SLAVE", SPI_BYTES);
+  
+  /* Clear status register */
   cfg->SPISR = 0;
 
+  /* Set default values */
+  if(cfg->SPIBR == 0) cfg->SPIBR =  SPI_DEFAULT_BIT_INTERVAL;
+
+  cfg->SPICR1 |= (1 << SPI_SPE); // SPI enabled
+  cfg->SPICR1 |= (1 << SPI_SSOE); // SS is Slave Select output
+  cfg->SPICR1 |= (1 << SPI_LSBFE); // LSB-First Enable
+  if(cfg->role == SPI_MASTER) cfg->SPICR1 |= (1 << SPI_MSTR);
+
+  cfg->SPICR2 |= (1 << SPI_MODFEN); // SS pin used
+
   cfg->ssLevel = SPI_HIGH;
+}
+
+void SPI_addSSPin(SPI_Config* cfg, SPI_HAL_Pin* ss){
+  if(cfg->ssPinCount < SPI_MAX_SS_PINS){
+    cfg->ssPins[cfg->ssPinCount] = ss;
+    cfg->ssPinCount++;
+  }
+}
+
+SPI_HAL_Pin* SPI_getSSPin(SPI_Config* cfg, uint8_t index){
+  if(index < cfg->ssPinCount){
+    return cfg->ssPins[index];
+  }
+  return NULL;
 }
 
 /*
 SLAVE SPIDR = 0b00110111 (55)
 MASTER SPIDR = 0b00010110 (22)
+
+SPI_LSBFE = 1
 
 Clock cycle | Master SPIDR | Slave SPIDR | MISO | MOSI | Note
 ------------+--------------+-------------+------+------+-----
@@ -44,15 +76,24 @@ Clock cycle | Master SPIDR | Slave SPIDR | MISO | MOSI | Note
 */
 
 void SPI_send(SPI_Config* cfg, uint8_t payload, SPI_HAL_Pin* ss){
+  if(bitCheck(cfg->SPICR1, SPI_SPE) == 0) return;
+
   SPI_logNum(cfg, "Sending", payload, SPI_BYTES);
   cfg->SPIDR = payload;
 
-  SPI_log(cfg, "Set SS LOW", SPI_BITS);
-  SPI_HAL_pinWrite(ss, SPI_LOW);
-  SPI_HAL_sleep(100);
-
   // Transmission
-  if(cfg->role == SPI_MASTER){
+  if(bitCheck(cfg->SPICR1, SPI_MSTR)){
+    if(ss == NULL){
+      SPI_log(cfg, "No SS pin", SPI_BITS);
+      return;
+    }
+
+    if(bitCheck(cfg->SPICR2, SPI_MODFEN)){
+      SPI_log(cfg, "Set SS LOW", SPI_BITS);
+      SPI_HAL_pinWrite(ss, SPI_LOW);
+      SPI_HAL_sleep(100);
+    }
+
     SPI_log(cfg, "LSB", SPI_BITS);
     for(int bitNumber = 0; bitNumber < SPI_WORD_SIZE; bitNumber++){
       // Send
@@ -70,21 +111,29 @@ void SPI_send(SPI_Config* cfg, uint8_t payload, SPI_HAL_Pin* ss){
 
       // Clock cycle
       SPI_HAL_pinWrite(cfg->SCK, SPI_HIGH);
-      SPI_HAL_sleep(100);
+      SPI_HAL_sleep(cfg->SPIBR/2);
       SPI_HAL_pinWrite(cfg->SCK, SPI_LOW);
-      SPI_HAL_sleep(100);
+      SPI_HAL_sleep(cfg->SPIBR/2);
     }
     SPI_log(cfg, "MSB", SPI_BITS);
-  }
-  SPI_logNum(cfg, "Finished transmission. Received", cfg->SPIDR, SPI_BYTES);
 
-  SPI_log(cfg, "Set SS HIGH", SPI_BITS);
-  SPI_HAL_pinWrite(ss, SPI_HIGH);
-  SPI_HAL_pinWrite(cfg->MOSI, SPI_LOW);
-  SPI_HAL_sleep(50);
+    SPI_log(cfg, "Finished transmission", SPI_BYTES);
+    SPI_logNum(cfg, "Received", cfg->SPIDR, SPI_BYTES);
+    cfg->SPISR |= (1 << SPI_SPIF);
+    
+    if(bitCheck(cfg->SPICR2, SPI_MODFEN)){
+      SPI_log(cfg, "Set SS HIGH", SPI_BITS);
+      SPI_HAL_pinWrite(ss, SPI_HIGH);
+    }
+
+    SPI_HAL_pinWrite(cfg->MOSI, SPI_LOW);
+    SPI_HAL_sleep(50);
+  }
 }
 
 void SPI_read(SPI_Config* cfg){
+  if(cfg->SPICR1 & (1 << SPI_SPE) == 0) return;
+
   SPI_HAL_PinLevel newSckLevel = SPI_HAL_pinRead(cfg->SCK);
   SPI_HAL_PinLevel newSsLevel = SPI_HAL_pinRead(cfg->SS);
 
@@ -119,7 +168,7 @@ void SPI_read(SPI_Config* cfg){
     if(cfg->bitNumber == SPI_WORD_SIZE){
       SPI_log(cfg, "Finished transmission", SPI_STATES);
       SPI_logNum(cfg, "Received", cfg->SPIDR, SPI_BYTES);
-      cfg->SPISR |= (1 << SPIF);
+      cfg->SPISR |= (1 << SPI_SPIF);
       cfg->bitNumber = 0;
     } else {
       cfg->SPIDR >>= 1;
